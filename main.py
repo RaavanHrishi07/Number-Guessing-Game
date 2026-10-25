@@ -1,7 +1,12 @@
 
+import json
 import random
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, ttk
+
+
+SCORE_FILE = Path.home() / ".number_guessing_game_scores.json"
 
 
 def evaluate_guess(guess, secret_number, max_number):
@@ -18,13 +23,44 @@ def evaluate_guess(guess, secret_number, max_number):
     return "high"
 
 
+def load_best_scores():
+    """Load saved best scores from disk."""
+    try:
+        with SCORE_FILE.open("r", encoding="utf-8") as file:
+            scores = json.load(file)
+
+        if not isinstance(scores, dict):
+            return {}
+
+        return {
+            key: value
+            for key, value in scores.items()
+            if isinstance(key, str)
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+            and value > 0
+        }
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_best_scores(scores):
+    """Save best scores to disk."""
+    try:
+        with SCORE_FILE.open("w", encoding="utf-8") as file:
+            json.dump(scores, file, indent=4)
+        return True
+    except OSError:
+        return False
+
+
 class NumberGuessingGame:
     """A GUI-based number guessing game."""
 
     def __init__(self, root):
         self.root = root
         self.root.title("Number Guessing Game")
-        self.root.geometry("520x620")
+        self.root.geometry("520x660")
         self.root.resizable(False, False)
         self.root.configure(bg="#121826")
 
@@ -49,6 +85,7 @@ class NumberGuessingGame:
         self.secret_number = 0
         self.attempts = 0
         self.game_over = False
+        self.best_scores = load_best_scores()
 
         self.build_ui()
         self.new_game()
@@ -167,6 +204,15 @@ class NumberGuessingGame:
         )
         self.attempts_label.pack(pady=(4, 0))
 
+        self.best_score_label = tk.Label(
+            self.card,
+            text="Best Score: —",
+            font=("Segoe UI", 11, "bold"),
+            bg=self.colors["card"],
+            fg=self.colors["green"],
+        )
+        self.best_score_label.pack(pady=(8, 0))
+
         self.restart_button = tk.Button(
             self.root,
             text="↻  PLAY AGAIN",
@@ -193,18 +239,38 @@ class NumberGuessingGame:
             fg=self.colors["muted"],
         ).pack()
 
+    def update_best_score_label(self):
+        """Display the best score for the selected difficulty."""
+        difficulty = self.difficulty_var.get()
+        best = self.best_scores.get(difficulty)
+
+        if best is None:
+            text = "Best Score: —"
+        else:
+            attempt_word = "attempt" if best == 1 else "attempts"
+            text = f"Best Score: {best} {attempt_word}"
+
+        self.best_score_label.config(text=text)
+
+    def record_best_score(self):
+        """Save a new record when the player beats their best score."""
+        difficulty = self.difficulty_var.get()
+        previous_best = self.best_scores.get(difficulty)
+
+        if previous_best is None or self.attempts < previous_best:
+            self.best_scores[difficulty] = self.attempts
+            save_best_scores(self.best_scores)
+
+        self.update_best_score_label()
+
     def new_game(self):
         """Start a fresh game."""
-
         self.max_number = self.difficulties.get(
             self.difficulty_var.get(),
             100,
         )
 
-        self.secret_number = random.randint(
-            1,
-            self.max_number,
-        )
+        self.secret_number = random.randint(1, self.max_number)
         self.attempts = 0
         self.game_over = False
 
@@ -221,6 +287,7 @@ class NumberGuessingGame:
         )
 
         self.attempts_label.config(text="Attempts: 0")
+        self.update_best_score_label()
 
         self.guess_entry.config(state="normal")
         self.guess_entry.delete(0, tk.END)
@@ -230,7 +297,6 @@ class NumberGuessingGame:
 
     def check_guess(self):
         """Validate a guess and display the appropriate feedback."""
-
         if self.game_over:
             return
 
@@ -278,6 +344,7 @@ class NumberGuessingGame:
 
         if result == "correct":
             self.game_over = True
+            self.record_best_score()
 
             attempt_word = (
                 "attempt" if self.attempts == 1 else "attempts"
